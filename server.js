@@ -109,7 +109,7 @@ app.get('/api/reengage', (req, res) => {
 });
 
 // --- Render Free Tier Keep-Awake Engine ---
-const SELF_URL = process.env.SELF_URL;
+const SELF_URL = process.env.SELF_URL ? process.env.SELF_URL.trim() : null;
 if (SELF_URL) {
   console.log(`[Keep-Alive] Initializing self-ping scheduler: ${SELF_URL}`);
   const pingClient = SELF_URL.startsWith('https') ? https : http;
