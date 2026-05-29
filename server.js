@@ -3,7 +3,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const http = require('http');
-const admin = require('firebase-admin');
 require('dotenv').config();
 
 const app = express();
@@ -15,29 +14,8 @@ app.use(cors());
 app.use(express.json());
 app.use(morgan('combined'));
 
-// --- 1. Firebase Admin SDK Initialization ---
-// To send actual push notifications, you will download the service account JSON from Firebase Console,
-// encode it as a Base64 string, and save it in your Render environment variables as `FIREBASE_CREDENTIALS`.
-const firebaseCredentialsB64 = process.env.FIREBASE_CREDENTIALS;
-let fcmEnabled = false;
-
-if (firebaseCredentialsB64) {
-  try {
-    const serviceAccount = JSON.parse(Buffer.from(firebaseCredentialsB64, 'base64').toString('ascii'));
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount)
-    });
-    fcmEnabled = true;
-    console.log('[Firebase] Admin SDK initialized successfully. FCM notifications are active!');
-  } catch (err) {
-    console.error('[Firebase] Failed to parse credentials Base64 string:', err.message);
-  }
-} else {
-  console.log('[Firebase] No FIREBASE_CREDENTIALS environment variable found. FCM running in dry-run mode.');
-}
-
-// In-memory data store for demonstration
-// In production, you would connect this to a cloud database like MongoDB or PostgreSQL (both supported by Render)
+// In-memory data store for progress syncing
+// In production, you can connect this to a free MongoDB or PostgreSQL database
 const usersDb = {};
 
 // Health check endpoint for Render monitoring
@@ -47,10 +25,10 @@ app.get('/health', (req, res) => {
 
 /**
  * Endpoint: POST /api/sync
- * Purpose: Securely backs up progress AND registers their FCM Push Token
+ * Purpose: Securely backs up player progress (currentLevel, streakCount, coins)
  */
 app.post('/api/sync', (req, res) => {
-  const { userId, currentLevel, streakCount, coins, fcmToken } = req.body;
+  const { userId, currentLevel, streakCount, coins } = req.body;
 
   if (!userId) {
     return res.status(400).json({ error: 'Missing required field: userId' });
@@ -62,90 +40,74 @@ app.post('/api/sync', (req, res) => {
     currentLevel: currentLevel || 1,
     streakCount: streakCount || 0,
     coins: coins || 0,
-    fcmToken: fcmToken || usersDb[userId]?.fcmToken || null,
-    lastSync: new Date() // Tracks exactly when the user last played
+    lastSync: new Date()
   };
 
-  console.log(`[Sync] User ${userId} updated -> Level: ${currentLevel}, Streak: ${streakCount}, HasToken: ${!!fcmToken}`);
+  console.log(`[Sync] User ${userId} backed up -> Level: ${currentLevel}, Streak: ${streakCount}, Coins: ${coins}`);
 
   res.status(200).json({
-    message: 'Progress and push token synced successfully',
+    message: 'Progress synced successfully',
     data: usersDb[userId]
   });
 });
 
 /**
- * Helper: Sends a high-priority push notification using Firebase Cloud Messaging
+ * Endpoint: GET /api/reengage
+ * Purpose: Serves fresh, trending notification messages to the app in real-time
  */
-async function sendPushNotification(fcmToken, title, body) {
-  if (!fcmEnabled) {
-    console.log(`[FCM Dry-Run] Would send push -> Token: ${fcmToken.substring(0, 10)}... | Title: "${title}" | Body: "${body}"`);
-    return;
-  }
+app.get('/api/reengage', (req, res) => {
+  const level = parseInt(req.query.level) || 1;
+  const streak = parseInt(req.query.streak) || 0;
 
-  const message = {
-    notification: { title, body },
-    android: {
-      priority: 'high',
-      notification: {
-        channelId: 'vordle_reengagement', // matches awesome_notifications channel
-        color: '#FFD54F',
-        sound: 'default'
+  const messages = {
+    warmup: [
+      {
+        title: 'Quick Brain Warm-Up! 🧠',
+        body: `Ready to test your vocabulary? Level ${level} has some tricky words waiting today!`
+      },
+      {
+        title: 'Vordle Riddle of the Day 🔍',
+        body: `Word masters are currently tackling Level ${level}. Can you solve it in under 60 seconds?`
       }
-    },
-    apns: {
-      payload: {
-        aps: {
-          alert: { title, body },
-          sound: 'default',
-          badge: 1
-        }
+    ],
+    streakAlert: [
+      {
+        title: 'Don\'t let your streak freeze! 🥶',
+        body: `Your fantastic ${streak}-day streak is about to expire! Keep your fire burning at Level ${level}! 🔥`
+      },
+      {
+        title: 'Urgent Streak Alert! 🔥',
+        body: `You are just 1 puzzle away from losing your ${streak}-day winning streak! Save it now!`
       }
-    },
-    token: fcmToken
+    ],
+    standard: [
+      {
+        title: 'Your Daily Puzzle is Ready! 🏆',
+        body: `Start a brand new winning streak today! Beat Level ${level} and grab free coins.`
+      },
+      {
+        title: 'Spelling muscles resting? 💪',
+        body: `Keep your cognitive skills sharp. Level ${level} is calling a Word Genius like you!`
+      }
+    ]
   };
 
-  try {
-    const response = await admin.messaging().send(message);
-    console.log(`[FCM] Notification sent successfully! MessageID: ${response}`);
-  } catch (error) {
-    console.error(`[FCM] Error dispatching push to token:`, error.message);
+  // Choose the best category based on user's streak
+  let selectedCategory = messages.standard;
+  if (streak > 0) {
+    selectedCategory = messages.streakAlert;
+  } else if (Math.random() > 0.5) {
+    selectedCategory = messages.warmup;
   }
-}
 
-/**
- * Background Scheduler: Runs every hour to find inactive players and send re-engagement push notifications
- */
-setInterval(async () => {
-  console.log('[Scheduler] Running hourly inactivity sweep...');
-  const now = new Date();
+  // Grab a random message from the category
+  const randomIndex = Math.floor(Math.random() * selectedCategory.length);
+  const selectedMessage = selectedCategory[randomIndex];
 
-  for (const userId in usersDb) {
-    const user = usersDb[userId];
-    if (!user.fcmToken) continue;
+  res.status(200).json(selectedMessage);
+});
 
-    const hoursInactive = (now - user.lastSync) / (1000 * 60 * 60);
-
-    // If user has been inactive for exactly 24 to 25 hours, send a daily reminder
-    if (hoursInactive >= 24 && hoursInactive < 25) {
-      const level = user.currentLevel;
-      const streak = user.streakCount;
-
-      let title = 'Your Daily Puzzle is Ready! 🏆';
-      let body = `Start a new daily winning streak! Complete Level ${level} to claim bonus coins!`;
-
-      if (streak > 0) {
-        title = 'Streak Alert! 🔥 Don\'t freeze!';
-        body = `Your fantastic ${streak}-day streak is about to break! Protect it by solving Level ${level}!`;
-      }
-
-      console.log(`[Scheduler] User ${userId} has been inactive for 24 hours. Dispatching push!`);
-      await sendPushNotification(user.fcmToken, title, body);
-    }
-  }
-}, 60 * 60 * 1000); // Check once every hour
-
-// --- 2. Render Free Tier Keep-Awake Engine ---
+// --- Render Free Tier Keep-Awake Engine ---
 const SELF_URL = process.env.SELF_URL;
 if (SELF_URL) {
   console.log(`[Keep-Alive] Initializing self-ping scheduler: ${SELF_URL}`);
