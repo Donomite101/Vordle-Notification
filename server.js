@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const http = require('http');
+const https = require('https');
 require('dotenv').config();
 
 const app = express();
@@ -111,8 +112,9 @@ app.get('/api/reengage', (req, res) => {
 const SELF_URL = process.env.SELF_URL;
 if (SELF_URL) {
   console.log(`[Keep-Alive] Initializing self-ping scheduler: ${SELF_URL}`);
+  const pingClient = SELF_URL.startsWith('https') ? https : http;
   setInterval(() => {
-    http.get(`${SELF_URL}/health`, (res) => {
+    pingClient.get(`${SELF_URL}/health`, (res) => {
       console.log(`[Keep-Alive] Self-ping successful: ${res.statusCode}`);
     }).on('error', (err) => {
       console.error(`[Keep-Alive] Self-ping failed:`, err.message);
