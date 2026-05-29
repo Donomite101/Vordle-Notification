@@ -54,7 +54,7 @@ app.post('/api/sync', (req, res) => {
 
 /**
  * Endpoint: GET /api/reengage
- * Purpose: Serves fresh, trending notification messages to the app in real-time
+ * Purpose: Serves distinct, fresh, trending Gen-Z & Duolingo-style passive-aggressive notification messages in real-time
  */
 app.get('/api/reengage', (req, res) => {
   const level = parseInt(req.query.level) || 1;
@@ -63,49 +63,81 @@ app.get('/api/reengage', (req, res) => {
   const messages = {
     warmup: [
       {
-        title: 'Quick Brain Warm-Up! 🧠',
-        body: `Ready to test your vocabulary? Level ${level} has some tricky words waiting today!`
+        title: 'Vordle is crying... 🥺',
+        body: `Level ${level} is waiting. I guess 5-letter words aren't as important as your TikTok scroll...`
       },
       {
-        title: 'Vordle Riddle of the Day 🔍',
-        body: `Word masters are currently tackling Level ${level}. Can you solve it in under 60 seconds?`
-      }
-    ],
-    streakAlert: [
-      {
-        title: 'Don\'t let your streak freeze! 🥶',
-        body: `Your fantastic ${streak}-day streak is about to expire! Keep your fire burning at Level ${level}! 🔥`
+        title: 'Um, hello? 👀',
+        body: `My green owl friend warned me about players like you. Don't make me send him to Level ${level}.`
       },
       {
-        title: 'Urgent Streak Alert! 🔥',
-        body: `You are just 1 puzzle away from losing your ${streak}-day winning streak! Save it now!`
+        title: 'Bestie, be for real. 💅',
+        body: `You left me on read. Your brain cells are literally begging you to solve Level ${level}.`
+      },
+      {
+        title: 'Is it me? Am I the problem? 🥀',
+        body: `Just 2 minutes of Vordle. No cap, your vocabulary is starting to look a little mid.`
       }
     ],
-    standard: [
+    daily: streak > 0 ? [
       {
-        title: 'Your Daily Puzzle is Ready! 🏆',
-        body: `Start a brand new winning streak today! Beat Level ${level} and grab free coins.`
+        title: 'Your streak is packin\' its bags. 🧳',
+        body: `It is literally about to break. Solve Level ${level} to keep your ${streak}-day streak alive!`
+      },
+      {
+        title: '*Sighs in Spanish* 🦉',
+        body: `Your ${streak}-day streak is currently on life support. Only Level ${level} can save it.`
+      },
+      {
+        title: 'Don\'t ghost your streak. 👻',
+        body: `A ${streak}-day streak is a terrible thing to waste. Solve Level ${level} before it's gone!`
+      },
+      {
+        title: 'This is getting awkward. 😬',
+        body: `That ${streak}-day streak won't protect itself. Level ${level} is ready. Don't flop now.`
+      }
+    ] : [
+      {
+        title: 'Your Daily Word Fix is Ready! 🏆',
+        body: `Start a new daily winning streak today! Beat Level ${level} and grab free coins.`
       },
       {
         title: 'Spelling muscles resting? 💪',
         body: `Keep your cognitive skills sharp. Level ${level} is calling a Word Genius like you!`
+      },
+      {
+        title: 'Did you forget today\'s puzzle? 🤔',
+        body: `A brand new Vordle puzzle awaits. Come claim your daily rewards!`
+      }
+    ],
+    reactivation: [
+      {
+        title: 'Okay, I see how it is. 💔',
+        body: `It's fine. Go play other games. I'll just sit here at Level ${level}... alone... forever.`
+      },
+      {
+        title: 'We need to talk. 💬',
+        body: `Did we stutter? Your word game skills are getting rusty. Come back for 50 free coins!`
+      },
+      {
+        title: 'Rent is due. 🏠',
+        body: `And by rent, I mean your daily brain exercise. Come crush Level ${level} right now.`
+      },
+      {
+        title: 'Are you ignoring me? 😒',
+        body: `Even Duolingo thinks you're being cold. Come prove you're still a spelling champion!`
       }
     ]
   };
 
-  // Choose the best category based on user's streak
-  let selectedCategory = messages.standard;
-  if (streak > 0) {
-    selectedCategory = messages.streakAlert;
-  } else if (Math.random() > 0.5) {
-    selectedCategory = messages.warmup;
-  }
+  // Grab random messages for each milestone
+  const getRandomMessage = (list) => list[Math.floor(Math.random() * list.length)];
 
-  // Grab a random message from the category
-  const randomIndex = Math.floor(Math.random() * selectedCategory.length);
-  const selectedMessage = selectedCategory[randomIndex];
-
-  res.status(200).json(selectedMessage);
+  res.status(200).json({
+    warmup: getRandomMessage(messages.warmup),
+    daily: getRandomMessage(messages.daily),
+    reactivation: getRandomMessage(messages.reactivation)
+  });
 });
 
 // --- Render Free Tier Keep-Awake Engine ---
