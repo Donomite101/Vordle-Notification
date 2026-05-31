@@ -141,20 +141,43 @@ app.get('/api/reengage', (req, res) => {
 });
 
 // --- Render Free Tier Keep-Awake Engine ---
+// Always use https for the self-ping since Render runs on HTTPS
 const SELF_URL = process.env.SELF_URL ? process.env.SELF_URL.trim() : null;
 if (SELF_URL) {
   console.log(`[Keep-Alive] Initializing self-ping scheduler: ${SELF_URL}`);
-  const pingClient = SELF_URL.startsWith('https') ? https : http;
+
+  const pingModule = SELF_URL.startsWith('https://') ? https : http;
+
   setInterval(() => {
-    pingClient.get(`${SELF_URL}/health`, (res) => {
-      console.log(`[Keep-Alive] Self-ping successful: ${res.statusCode}`);
-    }).on('error', (err) => {
-      console.error(`[Keep-Alive] Self-ping failed:`, err.message);
-    });
-  }, 10 * 60 * 1000); // Pings itself every 10 minutes to prevent container sleep
+    try {
+      const req = pingModule.get(`${SELF_URL}/health`, (res) => {
+        console.log(`[Keep-Alive] Self-ping OK: ${res.statusCode}`);
+        // Drain response to free socket
+        res.resume();
+      });
+      req.on('error', (err) => {
+        console.error(`[Keep-Alive] Self-ping error: ${err.message}`);
+      });
+      req.setTimeout(10000, () => {
+        req.destroy();
+        console.warn('[Keep-Alive] Self-ping timed out after 10s');
+      });
+    } catch (err) {
+      console.error(`[Keep-Alive] Self-ping threw: ${err.message}`);
+    }
+  }, 4 * 60 * 1000); // Every 4 minutes (Render sleeps after 5min inactivity)
 } else {
-  console.log('[Keep-Alive] No SELF_URL configured. Keep-alive self-ping is inactive.');
+  console.log('[Keep-Alive] No SELF_URL configured. Keep-alive is inactive.');
 }
+
+// Prevent any unhandled errors from crashing the entire server process
+process.on('uncaughtException', (err) => {
+  console.error('[Server] Uncaught Exception (process kept alive):', err.message);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Server] Unhandled Promise Rejection (process kept alive):', reason);
+});
 
 // Start Server
 app.listen(PORT, () => {
